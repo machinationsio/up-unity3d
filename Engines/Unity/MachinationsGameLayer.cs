@@ -112,9 +112,10 @@ namespace MachinationsUP.Engines.Unity
         static readonly private List<MachinationsGameAwareObject> _gameAwareObjects = new List<MachinationsGameAwareObject>();
 
         /// <summary>
-        /// List with Scriptable Objects.
+        /// Dictionary with Scriptable Objects and their associated Binders (per Game Object Property name).
         /// </summary>
-        static readonly private List<IMachinationsScriptableObject> _scriptableObjects = new List<IMachinationsScriptableObject>();
+        static readonly private Dictionary<IMachinationsScriptableObject, EnrolledScriptableObject> _scriptableObjects =
+            new Dictionary<IMachinationsScriptableObject, EnrolledScriptableObject>();
 
         /// <summary>
         /// Socket.io used for communication with Machinations NodeJS backend.
@@ -337,8 +338,11 @@ namespace MachinationsUP.Engines.Unity
         {
             Debug.Log("MGL NotifyAboutMGLInitComplete.");
             //Notify Scriptable Objects.
-            foreach (IMachinationsScriptableObject so in _scriptableObjects)
-                so.MGLInitCompleteSO();
+            foreach (IMachinationsScriptableObject so in _scriptableObjects.Keys)
+            {
+                _scriptableObjects[so].Binders = CreateBindersForManifest(_scriptableObjects[so].Manifest);
+                so.MGLInitCompleteSO(_scriptableObjects[so].Binders);
+            }
 
             //_gameObjects is cloned as a new Array because the collection MAY be modified during MachinationsGameObject.MGLInitComplete.
             //That's because Game Objects MAY create other Game Objects during MachinationsGameObject.MGLInitComplete.
@@ -406,6 +410,33 @@ namespace MachinationsUP.Engines.Unity
                 if (_sourceElements.ContainsKey(diagramMapping)) continue;
                 _sourceElements.Add(diagramMapping, targets[diagramMapping]);
             }
+        }
+
+        /// <summary>
+        /// Creates <see cref="ElementBinder"/> for each Game Object Property provided in the <see cref="MachinationsGameObjectManifest"/>.
+        /// </summary>
+        /// <returns>Dictionary of Game Object Property Name and ElementBinder.</returns>
+        static private Dictionary<string, ElementBinder> CreateBindersForManifest (MachinationsGameObjectManifest manifest)
+        {
+            var ret = new Dictionary<string, ElementBinder>();
+            foreach (DiagramMapping dm in manifest.PropertiesToSync)
+            {
+                ElementBinder eb = new ElementBinder(null, dm); //The Binder will NOT have any Parent Game Object.
+                //Ask the Binder to create Elements for all possible States Associations.
+                var statesAssociations = manifest.GetStatesAssociationsForPropertyName(dm.GameObjectPropertyName);
+                //If no States Associations were defined.
+                if (statesAssociations.Count == 0)
+                    eb.CreateElementBaseForStateAssoc();
+                else
+                    foreach (StatesAssociation statesAssociation in statesAssociations)
+                        eb.CreateElementBaseForStateAssoc(statesAssociation);
+                //Save the Binder for later use.
+                dm.Binder = eb;
+                //Store the new Binder in the Dictionary to return.
+                ret[dm.GameObjectPropertyName] = eb;
+            }
+
+            return ret;
         }
 
         /// <summary>
@@ -519,17 +550,30 @@ namespace MachinationsUP.Engines.Unity
             if (!string.IsNullOrEmpty(cacheDirectoryName)) SaveCache();
         }
 
+        /// <summary>
+        /// Goes through registered <see cref="MachinationsGameObject"/> and <see cref="IMachinationsScriptableObject"/>
+        /// and notifies those Objects that are affected by the update.
+        /// </summary>
+        /// <param name="diagramMapping">Diagram Mapping that has been updated.</param>
+        /// <param name="elementBase">The <see cref="ElementBase"/> parsed from the back-end update.</param>
         private void NotifyAboutMGLUpdate (DiagramMapping diagramMapping, ElementBase elementBase)
         {
-            //Notify Scriptable Objects.
-            foreach (IMachinationsScriptableObject so in _scriptableObjects)
+            //Notify Scriptable Objects that are affected by what changed in this update.
+            foreach (IMachinationsScriptableObject imso in _scriptableObjects.Keys)
             {
-                //TODO: must update instead of create here.
-                diagramMapping.Binder.CreateElementBaseForStateAssoc(diagramMapping.StatesAssoc, true);
-                so.MGLUpdateSO(diagramMapping, elementBase);
+                //Find matching Binder by checking Game Object Property names.
+                //Reminder: _scriptableObjects[imso] is a Dictionary of that Machinations Scriptable Object's Game Property Names.
+                foreach (string gameObjectPropertyName in _scriptableObjects[imso].Binders.Keys)
+                    if (gameObjectPropertyName == diagramMapping.GameObjectPropertyName)
+                    {
+                        //TODO: must update instead of create here.
+                        _scriptableObjects[imso].Binders[gameObjectPropertyName]
+                            .CreateElementBaseForStateAssoc(diagramMapping.StatesAssoc, true);
+                        imso.MGLUpdateSO(diagramMapping, elementBase);
+                    }
             }
 
-            //Notify all registered Machinations Game Objects.
+            //Notify all registered Machinations Game Objects, if they have 
             foreach (MachinationsGameObject mgo in _gameObjects)
                 //When we find a registered Game Object that matches this Diagram Mapping asking it to update its Binder.
                 if (mgo.GameObjectName == diagramMapping.GameObjectName)
@@ -782,32 +826,6 @@ namespace MachinationsUP.Engines.Unity
         #region Public Methods
 
         /// <summary>
-        /// Creates <see cref="ElementBinder"/> for each Game Object Property provided in the <see cref="MachinationsGameObjectManifest"/>.
-        /// </summary>
-        static public Dictionary<string, ElementBinder> CreateBindersForManifest (MachinationsGameObjectManifest manifest)
-        {
-            var ret = new Dictionary<string, ElementBinder>();
-            foreach (DiagramMapping dm in manifest.PropertiesToSync)
-            {
-                ElementBinder eb = new ElementBinder(null, dm); //The Binder will NOT have any Parent Game Object.
-                //Ask the Binder to create Elements for all possible States Associations.
-                var statesAssociations = manifest.GetStatesAssociationsForPropertyName(dm.GameObjectPropertyName);
-                //If no States Associations were defined.
-                if (statesAssociations.Count == 0)
-                    eb.CreateElementBaseForStateAssoc();
-                else
-                    foreach (StatesAssociation statesAssociation in statesAssociations)
-                        eb.CreateElementBaseForStateAssoc(statesAssociation);
-                //Save the Binder for later use.
-                dm.Binder = eb;
-                //Store the new Binder in the Dictionary to return.
-                ret[dm.GameObjectPropertyName] = eb;
-            }
-
-            return ret;
-        }
-
-        /// <summary>
         /// Registers a <see cref="MachinationsGameObjectManifest"/> to make sure that during Initialization, the MGL
         /// (aka <see cref="MachinationsGameLayer"/> retrieves all the Manifest's necessary data so that
         /// any Game Objects that use this Manifest can query the MGL for the needed values.
@@ -825,11 +843,13 @@ namespace MachinationsUP.Engines.Unity
         /// </summary>
         /// <param name="imso">The IMachinationsScriptableObject to add.</param>
         /// <param name="manifest">Its <see cref="MachinationsGameObjectManifest"/>.</param>
-        static public void EnrollScriptableObject (IMachinationsScriptableObject imso, MachinationsGameObjectManifest manifest)
+        static public void EnrollScriptableObject (IMachinationsScriptableObject imso,
+            MachinationsGameObjectManifest manifest)
         {
             Debug.Log("MGL EnrollScriptableObject: " + manifest);
             DeclareManifest(manifest);
-            if (!_scriptableObjects.Contains(imso)) _scriptableObjects.Add(imso);
+            if (!_scriptableObjects.ContainsKey(imso))
+                _scriptableObjects[imso] = new EnrolledScriptableObject {MScriptableObject = imso, Manifest = manifest};
         }
 
         /// <summary>

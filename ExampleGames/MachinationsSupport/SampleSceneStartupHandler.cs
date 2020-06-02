@@ -25,7 +25,7 @@ namespace MachinationsUP.ExampleGames.MachinationsSupport
 
         static private void SceneManagerOnsceneLoaded (Scene arg0, LoadSceneMode arg1)
         {
-            if (arg0.name == "ExampleScene")
+            if (arg0.name == "CompleteMainScene")
             {
                 Debug.Log("SampleSceneStartupHandler SceneManagerOnsceneLoaded CompleteMainScene.");
                 //Provide the MachinationsGameLayer with an IGameLifecycleProvider.

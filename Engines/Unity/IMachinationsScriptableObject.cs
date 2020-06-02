@@ -1,4 +1,6 @@
-﻿using MachinationsUP.Integration.Elements;
+﻿using System.Collections.Generic;
+using MachinationsUP.Integration.Binder;
+using MachinationsUP.Integration.Elements;
 using MachinationsUP.Integration.Inventory;
 
 namespace MachinationsUP.Engines.Unity
@@ -13,7 +15,8 @@ namespace MachinationsUP.Engines.Unity
         /// <summary>
         /// Called when Machinations initialization has been completed.
         /// </summary>
-        void MGLInitCompleteSO ();
+        /// <param name="binders">The Binders for this Object.</param>
+        void MGLInitCompleteSO (Dictionary<string, ElementBinder> binders);
 
         /// <summary>
         /// Called by the <see cref="MachinationsGameLayer"/> when an element has been updated in the Machinations back-end.
