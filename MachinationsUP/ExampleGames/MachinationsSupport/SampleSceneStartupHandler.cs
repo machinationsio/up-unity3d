@@ -12,6 +12,9 @@ namespace MachinationsUP.ExampleGames.MachinationsSupport
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void OnBeforeSceneLoadRuntimeMethod()
         {
+            QualitySettings.vSyncCount = 0;  // VSync must be disabled
+            Application.targetFrameRate = 20;
+            
             Debug.Log("SampleSceneStartupHandler OnBeforeSceneLoadRuntimeMethod.");
             //Get notifications about Scene Loads.
             SceneManager.sceneLoaded += SceneManagerOnsceneLoaded;
