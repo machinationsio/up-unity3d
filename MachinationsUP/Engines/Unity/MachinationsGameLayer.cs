@@ -283,14 +283,14 @@ namespace MachinationsUP.Engines.Unity
                 //Authenticate to Machinations back-end.
                 EmitMachinationsAuthRequest();
 
-                yield return new WaitUntil(() => IsAuthenticated);
+                yield return new WaitUntil(() => IsAuthenticated || IsInOfflineMode);
 
                 Debug.Log("MGL.Start: Authenticated. Sync start.");
 
                 //Send Game Init Requests for all registered machinationsUniqueID.
                 EmitMachinationsInitRequest();
 
-                yield return new WaitUntil(() => IsInitialized);
+                yield return new WaitUntil(() => IsInitialized || IsInOfflineMode);
 
                 Debug.Log("MGL.Start: Machinations Backend Sync complete. Resuming game.");
             }
@@ -628,6 +628,22 @@ namespace MachinationsUP.Engines.Unity
 
             return elementBase;
         }
+        
+        /// <summary>
+        /// Called on Socket Errors.
+        /// </summary>
+        private void FailedToConnect ()
+        {
+            if (_pendingResponses > 0)  _pendingResponses--;
+            _connectionAborted = true;
+            _socket.autoConnect = false;
+            
+            //Cache system active? Load Cache.
+            if (!string.IsNullOrEmpty(cacheDirectoryName)) LoadCache();
+            //Running in offline mode now.
+            IsInOfflineMode = true;
+            OnMachinationsUpdate?.Invoke(this, null);
+        }
 
         /// <summary>
         /// Saves the Cache.
@@ -806,14 +822,13 @@ namespace MachinationsUP.Engines.Unity
         private void OnAuthDeny (SocketIOEvent e)
         {
             Debug.Log("Game Auth Request Failure: " + e.data);
+            FailedToConnect();
         }
 
         private void OnSocketError (SocketIOEvent e)
         {
             Debug.Log("[SocketIO] !!!! Error received: " + e.name + " DATA: " + e.data + " ");
-            _pendingResponses--;
-            _connectionAborted = true;
-            _socket.autoConnect = false;
+            FailedToConnect();
         }
 
         private void OnSocketClose (SocketIOEvent e)
