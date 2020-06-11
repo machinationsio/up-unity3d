@@ -68,10 +68,7 @@ namespace SocketIO
 
         public string sid { get; set; }
 
-        public bool IsConnected
-        {
-            get { return connected && ws.IsConnected; }
-        }
+        public bool IsConnected => connected && ws.IsConnected;
 
         static public int MaxRetryCountForConnect
         {
@@ -119,7 +116,6 @@ namespace SocketIO
 
         public void Awake ()
         {
-
             //Init();
 #if SOCKET_IO_DEBUG
 			if(debugMethod == null) { debugMethod = Debug.Log; };
@@ -171,6 +167,12 @@ namespace SocketIO
 
         public void Update ()
         {
+            //Socket may not be ready on Update.
+            if (eventQueueLock == null)
+            {
+                return;
+            }
+            
             lock (eventQueueLock)
             {
                 while (eventQueue.Count > 0)
@@ -238,13 +240,13 @@ namespace SocketIO
 
         public void Connect ()
         {
-            connected = true;
-
             socketThread = new Thread(RunSocketThread);
             socketThread.Start(ws);
 
             pingThread = new Thread(RunPingThread);
             pingThread.Start(ws);
+
+            connected = true;
         }
 
         public void Close ()
@@ -384,7 +386,11 @@ namespace SocketIO
 
         private void EmitMessage (int id, string raw)
         {
-            if (!connected || !ws.IsConnected) return;
+            if (!connected || !ws.IsConnected)
+            {
+                Debug.Log("SocketIOComponent Error: Cannot Emit Message when not connected!");
+                return;
+            }
             EmitPacket(new Packet(EnginePacketType.MESSAGE, SocketPacketType.EVENT, 0, "/", id, new JSONObject(raw)));
         }
 
@@ -408,6 +414,7 @@ namespace SocketIO
             }
             catch (SocketIOException ex)
             {
+                Debug.Log("SocketIOComponent crashed on Send with " + ex.Message + "\r\n" + ex.StackTrace);
 #pragma warning restore 168
 #if SOCKET_IO_DEBUG
 				debugMethod.Invoke(ex.ToString());
@@ -417,7 +424,7 @@ namespace SocketIO
 
         private void OnOpen (object sender, EventArgs e)
         {
-            EmitEvent("open");
+            EmitEvent("open-start");
         }
 
         private void OnMessage (object sender, MessageEventArgs e)

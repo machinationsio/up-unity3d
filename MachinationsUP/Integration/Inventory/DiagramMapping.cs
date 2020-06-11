@@ -99,7 +99,11 @@ namespace MachinationsUP.Integration.Inventory
         {
             return GameObjectName == gameObjectName && GameObjectPropertyName == gameObjectPropertyName &&
                    (
-                       (stringifyStatesAssociation && (StatesAssoc == null || StatesAssoc.ToString() == statesAssociation.ToString())) ||
+                       (stringifyStatesAssociation && 
+                        (
+                            (StatesAssoc == null && statesAssociation == null) ||
+                            (StatesAssoc != null && statesAssociation != null && StatesAssoc.ToString() == statesAssociation.ToString()))) 
+                       ||
                        (!stringifyStatesAssociation && StatesAssoc == statesAssociation)
                    );
         }

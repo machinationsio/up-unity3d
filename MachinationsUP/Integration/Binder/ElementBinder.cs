@@ -176,8 +176,9 @@ namespace MachinationsUP.Integration.Binder
         public void CreateElementBaseForStateAssoc (StatesAssociation statesAssociation = null, bool overwrite = false,
             bool isRunningOffline = false)
         {
-            Debug.Log("CreateElementBaseForStateAssoc in ElementBinder [Hash: " + GetHashCode() + "] '" +
-                      GetFullName() + "' @ statesAssociation: " + (statesAssociation != null ? statesAssociation.Title : "N/A"));
+            //Debug.Log("CreateElementBaseForStateAssoc in ElementBinder [Hash: " + GetHashCode() + "] '" +
+            //          GetFullName() + "' @ statesAssociation: " + (statesAssociation != null ? statesAssociation.Title : "N/A"));
+            
             //The MachinationsGameLayer is responsible for creating ElementBase.
             ElementBase newElement = MachinationsGameLayer.Instance.CreateElement(this, statesAssociation);
             //If no element was found & running offline, just letting it slide.

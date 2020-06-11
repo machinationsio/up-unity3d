@@ -220,6 +220,8 @@ namespace MachinationsUP.Engines.Unity
                 if (_instance != null) return _instance;
                 _instance = new GameObject("MachinationsGameLayer").AddComponent<MachinationsGameLayer>();
                 Debug.Log("MGL created by invocation. Hash is " + _instance.GetHashCode() + " and User Key is " + _instance.userKey);
+                //The MGL must live on.
+                DontDestroyOnLoad(_instance);
                 return _instance;
             }
         }
@@ -242,10 +244,11 @@ namespace MachinationsUP.Engines.Unity
                 //will likely execute before Instance is ever accessed. Making sure that the instance is set.
                 Debug.Log("MGL created by Unity Engine. Hash is " + GetHashCode() + " and User Key is " + userKey);
                 _instance = this;
+                //The MGL must live on.
+                DontDestroyOnLoad(_instance);
             }
 
             Debug.Log("MGL Awake.");
-            Debug.Log(gameObject); //Show the object to which this script is attached, if any.
         }
 
         /// <summary>
@@ -264,7 +267,7 @@ namespace MachinationsUP.Engines.Unity
             //Attempt to init Socket.
             _connectionAborted = InitSocket() == false;
 
-            yield return new WaitUntil(() => _connectionAborted || _socket.IsConnected);
+            yield return new WaitUntil(() => _connectionAborted || (_socket.IsConnected && SocketOpenReceived && SocketOpenStartReceived));
 
             if (_connectionAborted)
             {
@@ -316,15 +319,21 @@ namespace MachinationsUP.Engines.Unity
             //TODO: during development, fail fast on Socket error. Remove @ release.
             SocketIOComponent.MaxRetryCountForConnect = 1;
             _socket = go.GetComponent<SocketIOComponent>();
+            //Socket must be kept throughout the game.
+            DontDestroyOnLoad(go);
+            DontDestroyOnLoad(_socket);
+            //Setup socket.
             _socket.SetUserKey(userKey);
             _socket.Init();
-            _socket.On("open", OnSocketOpen);
+            _socket.On(SyncMsgs.RECEIVE_OPEN, OnSocketOpen);
+            _socket.On(SyncMsgs.RECEIVE_OPEN_START, OnSocketOpenStart);
             _socket.On(SyncMsgs.RECEIVE_AUTH_SUCCESS, OnAuthSuccess);
             _socket.On(SyncMsgs.RECEIVE_AUTH_DENY, OnAuthDeny);
             _socket.On(SyncMsgs.RECEIVE_GAME_INIT, OnGameInitResponse);
             _socket.On(SyncMsgs.RECEIVE_DIAGRAM_ELEMENTS_UPDATED, OnDiagramElementsUpdated);
-            _socket.On("error", OnSocketError);
-            _socket.On("close", OnSocketClose);
+            _socket.On(SyncMsgs.RECEIVE_ERROR, OnSocketError);
+            _socket.On(SyncMsgs.RECEIVE_API_ERROR, OnSocketError);
+            _socket.On(SyncMsgs.RECEIVE_CLOSE, OnSocketClose);
             _socket.Connect();
             return true;
         }
@@ -457,7 +466,7 @@ namespace MachinationsUP.Engines.Unity
         /// </summary>
         /// <param name="elementBinder">The ElementBinder that should match the ElementBase.</param>
         /// <param name="statesAssociation">The StatesAssociation to search with.</param>
-        public ElementBase FindSourceElement (ElementBinder elementBinder,
+        private ElementBase FindSourceElement (ElementBinder elementBinder,
             StatesAssociation statesAssociation = null)
         {
             ElementBase ret = null;
@@ -477,7 +486,7 @@ namespace MachinationsUP.Engines.Unity
                                     GetMachinationsUniqueID(elementBinder, statesAssociation) +
                                     "' not found in _sourceElements.");
             //If no ElementBase was found.
-            if (found && ret == null)
+            if (ret == null)
             {
                 //Search the Cache.
                 if (IsInOfflineMode && HasCache)
@@ -628,16 +637,16 @@ namespace MachinationsUP.Engines.Unity
 
             return elementBase;
         }
-        
+
         /// <summary>
         /// Called on Socket Errors.
         /// </summary>
         private void FailedToConnect ()
         {
-            if (_pendingResponses > 0)  _pendingResponses--;
+            if (_pendingResponses > 0) _pendingResponses--;
             _connectionAborted = true;
             _socket.autoConnect = false;
-            
+
             //Cache system active? Load Cache.
             if (!string.IsNullOrEmpty(cacheDirectoryName)) LoadCache();
             //Running in offline mode now.
@@ -720,6 +729,7 @@ namespace MachinationsUP.Engines.Unity
         /// </summary>
         private void EmitMachinationsAuthRequest ()
         {
+            Debug.Log("EmitMachinationsAuthRequest with gameName " + gameName + " and diagram token " + diagramToken);
             _pendingResponses++;
             var initRequest = new Dictionary<string, string>
             {
@@ -769,7 +779,14 @@ namespace MachinationsUP.Engines.Unity
 
         private void OnSocketOpen (SocketIOEvent e)
         {
+            SocketOpenReceived = true;
             Debug.Log("[SocketIO] Open received: " + e.name + " " + e.data);
+        }
+        
+        private void OnSocketOpenStart (SocketIOEvent e)
+        {
+            SocketOpenStartReceived = true;
+            Debug.Log("[SocketIO] Open Start received: " + e.name + " " + e.data);
         }
 
         /// <summary>
@@ -940,6 +957,16 @@ namespace MachinationsUP.Engines.Unity
         /// TRUE when all Init-related tasks have been completed.
         /// </summary>
         static private bool IsAuthenticated { set; get; }
+
+        /// <summary>
+        /// TRUE when the Socket is open.
+        /// </summary>
+        static private bool SocketOpenReceived { set; get; }
+        
+        /// <summary>
+        /// TRUE when the Socket is open.
+        /// </summary>
+        static private bool SocketOpenStartReceived { set; get; }
 
         static private bool isInitialized;
 

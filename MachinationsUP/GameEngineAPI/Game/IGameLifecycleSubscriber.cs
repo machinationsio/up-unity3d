@@ -1,4 +1,3 @@
-using MachinationsUP.ExampleGames.MachinationsSupport.Events;
 using MachinationsUP.SyncAPI;
 
 namespace MachinationsUP.GameEngineAPI.Game

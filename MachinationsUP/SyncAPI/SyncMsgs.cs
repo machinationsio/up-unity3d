@@ -10,10 +10,15 @@
         public const string SEND_GAME_INIT = "game-init";
         public const string SEND_GAME_EVENT = "game-event";
         //Receive.
+        public const string RECEIVE_OPEN_START = "open-start";
+        public const string RECEIVE_OPEN = "open";
+        public const string RECEIVE_ERROR = "error";
+        public const string RECEIVE_API_ERROR = "api-error";
         public const string RECEIVE_AUTH_SUCCESS = "api-auth-success";
         public const string RECEIVE_AUTH_DENY = "api-auth-deny";
         public const string RECEIVE_GAME_INIT = "game-init";
         public const string RECEIVE_DIAGRAM_ELEMENTS_UPDATED = "diagram-elements-updated";
+        public const string RECEIVE_CLOSE = "close";
 
         //JSON keys used for communication.
 
