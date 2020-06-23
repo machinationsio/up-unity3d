@@ -262,7 +262,7 @@ namespace MachinationsUP.Engines.Unity
                 AddTargets(mgo.Manifest.GetMachinationsDiagramTargets());
 
             //Notify Game Engine of Machinations Init Start.
-            Instance._gameLifecycleProvider.MachinationsInitStart();
+            Instance._gameLifecycleProvider?.MachinationsInitStart();
 
             //Attempt to init Socket.
             _connectionAborted = InitSocket() == false;
@@ -299,7 +299,7 @@ namespace MachinationsUP.Engines.Unity
             }
 
             //Notify Game Engine of Machinations Init Complete.
-            Instance._gameLifecycleProvider.MachinationsInitComplete();
+            Instance._gameLifecycleProvider?.MachinationsInitComplete();
         }
 
         #endregion
