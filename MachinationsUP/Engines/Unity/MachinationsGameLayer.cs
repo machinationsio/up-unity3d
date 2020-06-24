@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Xml;
 using MachinationsUP.GameEngineAPI.Game;
@@ -228,7 +229,7 @@ namespace MachinationsUP.Engines.Unity
 
         #endregion
 
-        #region MonoBehaviour Overrides (Entry Point is in Start)
+        #region MonoBehaviour Overrides (ENTRY POINT is in Start)
 
         /// <summary>
         /// Awake is used to initialize any variables or game state before the game starts.
@@ -281,16 +282,12 @@ namespace MachinationsUP.Engines.Unity
             }
             else
             {
-                Debug.Log("MGL.Start: Connection achieved. Authentication request.");
+                Debug.Log("MGL.Start: Connection achieved.");
 
-                //Authenticate to Machinations back-end.
                 EmitMachinationsAuthRequest();
 
                 yield return new WaitUntil(() => IsAuthenticated || IsInOfflineMode);
 
-                Debug.Log("MGL.Start: Authenticated. Sync start.");
-
-                //Send Game Init Requests for all registered machinationsUniqueID.
                 EmitMachinationsInitRequest();
 
                 yield return new WaitUntil(() => IsInitialized || IsInOfflineMode);
@@ -534,9 +531,16 @@ namespace MachinationsUP.Engines.Unity
 
                 //Element already exists but not in Update mode?
                 if (_sourceElements[diagramMapping] != null && !updateFromDiagram)
-                    throw new Exception("MGL.UpdateWithValuesFromMachinations: A Source Element already exists for this DiagramMapping: " +
-                                        diagramMapping +
-                                        ". Perhaps you wanted to update it? Then, invoke this function with update: true.");
+                {
+                    //Bark if a re-init wasn't what caused this duplication.
+                    if (!ReInitOngoing)
+                        throw new Exception(
+                            "MGL.UpdateWithValuesFromMachinations: A Source Element already exists for this DiagramMapping: " +
+                            diagramMapping +
+                            ". Perhaps you wanted to update it? Then, invoke this function with update: true.");
+                    //When re-initializing, go to the next element directly.
+                    continue;
+                }
 
                 //This is the important line where the ElementBase is assigned to the Source Elements Dictionary, to be used for
                 //cloning elements in the future.
@@ -553,6 +557,14 @@ namespace MachinationsUP.Engines.Unity
                 if (updateFromDiagram) NotifyAboutMGLUpdate(diagramMapping, elementBase);
             }
 
+            //If this was a re-initialization.
+            if (ReInitOngoing)
+            {
+                ReInitOngoing = false;
+                //Notify Game Engine of Machinations Init Complete.
+                Instance._gameLifecycleProvider?.MachinationsInitComplete();
+            }
+            
             //Send Update notification to all listeners.
             OnMachinationsUpdate?.Invoke(this, null);
             //Caching active? Save the cache now.
@@ -641,17 +653,18 @@ namespace MachinationsUP.Engines.Unity
         /// <summary>
         /// Called on Socket Errors.
         /// </summary>
-        private void FailedToConnect ()
+        /// <param name="calledFromThread">TRUE: was called from a Thread, skip loading Cache here.
+        /// The Thread will have to handle that.</param>
+        private void FailedToConnect (bool calledFromThread)
         {
             if (_pendingResponses > 0) _pendingResponses--;
             _connectionAborted = true;
             _socket.autoConnect = false;
 
+            //Loading Cache cannot be done from a thread.
+            if (calledFromThread) return;
             //Cache system active? Load Cache.
             if (!string.IsNullOrEmpty(cacheDirectoryName)) LoadCache();
-            //Running in offline mode now.
-            IsInOfflineMode = true;
-            OnMachinationsUpdate?.Invoke(this, null);
         }
 
         /// <summary>
@@ -703,6 +716,10 @@ namespace MachinationsUP.Engines.Unity
                         _sourceElements[dms] = dm.CachedElementBase;
                 }
             }
+
+            //Running in offline mode now.
+            IsInOfflineMode = true;
+            OnMachinationsUpdate?.Invoke(this, null);
         }
 
         #endregion
@@ -729,14 +746,16 @@ namespace MachinationsUP.Engines.Unity
         /// </summary>
         private void EmitMachinationsAuthRequest ()
         {
-            Debug.Log("EmitMachinationsAuthRequest with gameName " + gameName + " and diagram token " + diagramToken);
             _pendingResponses++;
-            var initRequest = new Dictionary<string, string>
+            var authRequest = new Dictionary<string, string>
             {
                 {SyncMsgs.JK_AUTH_GAME_NAME, gameName},
                 {SyncMsgs.JK_AUTH_DIAGRAM_TOKEN, diagramToken}
             };
-            _socket.Emit(SyncMsgs.SEND_API_AUTHORIZE, new JSONObject(initRequest));
+            
+            Debug.Log("MGL.EmitMachinationsAuthRequest with gameName " + gameName + " and diagram token " + diagramToken);
+            
+            _socket.Emit(SyncMsgs.SEND_API_AUTHORIZE, new JSONObject(authRequest));
         }
 
         /// <summary>
@@ -774,6 +793,8 @@ namespace MachinationsUP.Engines.Unity
             //Wrapping the keys Array inside a JSON Object.
             initRequest.Add(SyncMsgs.JK_INIT_MACHINATIONS_IDS, new JSONObject(keys));
 
+            Debug.Log("MGL.EmitMachinationsInitRequest.");
+            
             _socket.Emit(SyncMsgs.SEND_GAME_INIT, new JSONObject(initRequest));
         }
 
@@ -782,7 +803,7 @@ namespace MachinationsUP.Engines.Unity
             SocketOpenReceived = true;
             Debug.Log("[SocketIO] Open received: " + e.name + " " + e.data);
         }
-        
+
         private void OnSocketOpenStart (SocketIOEvent e)
         {
             SocketOpenStartReceived = true;
@@ -839,13 +860,13 @@ namespace MachinationsUP.Engines.Unity
         private void OnAuthDeny (SocketIOEvent e)
         {
             Debug.Log("Game Auth Request Failure: " + e.data);
-            FailedToConnect();
+            FailedToConnect(false);
         }
 
         private void OnSocketError (SocketIOEvent e)
         {
             Debug.Log("[SocketIO] !!!! Error received: " + e.name + " DATA: " + e.data + " ");
-            FailedToConnect();
+            FailedToConnect(true);
         }
 
         private void OnSocketClose (SocketIOEvent e)
@@ -949,6 +970,15 @@ namespace MachinationsUP.Engines.Unity
             throw new Exception("MGL.GetSourceElementBase: cannot find any Source Element Base for " + diagramMapping);
         }
 
+        static public void PerformInitRequest ()
+        {
+            //Notify Game Engine of Machinations Init Start.
+            Instance._gameLifecycleProvider?.MachinationsInitStart();
+            Instance.EmitMachinationsInitRequest();
+            //Make sure that when the Init request will be handled as re-initialization.
+            ReInitOngoing = true;
+        }
+
         #endregion
 
         #region Properties
@@ -962,7 +992,7 @@ namespace MachinationsUP.Engines.Unity
         /// TRUE when the Socket is open.
         /// </summary>
         static private bool SocketOpenReceived { set; get; }
-        
+
         /// <summary>
         /// TRUE when the Socket is open.
         /// </summary>
@@ -1005,6 +1035,11 @@ namespace MachinationsUP.Engines.Unity
             }
             get => isInOfflineMode;
         }
+        
+        /// <summary>
+        /// TRUE: a re-initialization request is ongoing.
+        /// </summary>
+        static public bool ReInitOngoing { get; set; }
 
         /// <summary>
         /// Returns the current Game State, if any <see cref="IGameLifecycleProvider"/> is avaialble.
